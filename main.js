@@ -907,12 +907,38 @@ class CodexSidebarView extends ItemView {
   }
 
   renderContentComparison(container, before, after) {
-    const comparison = container.createDiv({ cls: "codex-sidebar-comparison" });
-    for (const [key, value] of [["before", before], ["after", after]]) {
-      const column = comparison.createDiv({ cls: `codex-sidebar-comparison-column is-${key}` });
-      column.createDiv({ cls: "codex-sidebar-comparison-title", text: this.plugin.t(key) });
-      column.createEl("pre", { text: value });
+    const comparison = container.createDiv({ cls: "codex-sidebar-diff", attr: { "aria-label": this.plugin.t("proposal") } });
+    const oldLines = String(before || "").split("\n");
+    const newLines = String(after || "").split("\n");
+    const rows = [];
+    if (oldLines.length * newLines.length > 1500000) {
+      oldLines.forEach((line) => rows.push({ type: "removed", text: line }));
+      newLines.forEach((line) => rows.push({ type: "added", text: line }));
+    } else {
+      const table = Array.from({ length: oldLines.length + 1 }, () => Array(newLines.length + 1).fill(0));
+      for (let i = oldLines.length - 1; i >= 0; i -= 1) {
+        for (let j = newLines.length - 1; j >= 0; j -= 1) {
+          table[i][j] = oldLines[i] === newLines[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+        }
+      }
+      let i = 0;
+      let j = 0;
+      while (i < oldLines.length || j < newLines.length) {
+        if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+          rows.push({ type: "context", text: oldLines[i] }); i += 1; j += 1;
+        } else if (j < newLines.length && (i >= oldLines.length || table[i][j + 1] >= table[i + 1][j])) {
+          rows.push({ type: "added", text: newLines[j] }); j += 1;
+        } else {
+          rows.push({ type: "removed", text: oldLines[i] }); i += 1;
+        }
+      }
     }
+    const fragment = comparison.createDiv({ cls: "codex-sidebar-diff-lines" });
+    rows.forEach((row) => {
+      const line = fragment.createDiv({ cls: `codex-sidebar-diff-line is-${row.type}` });
+      line.createSpan({ cls: "codex-sidebar-diff-marker", text: row.type === "added" ? "+" : row.type === "removed" ? "−" : " " });
+      line.createSpan({ cls: "codex-sidebar-diff-text", text: row.text || " " });
+    });
   }
 
   syncConversation(file) {

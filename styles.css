@@ -469,3 +469,32 @@
   white-space: pre-wrap;
   font-size: var(--font-ui-smaller);
 }
+
+.codex-sidebar-diff {
+  margin-top: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: auto;
+  background: var(--code-background, var(--background-secondary));
+}
+
+.codex-sidebar-diff-lines {
+  min-width: max-content;
+  padding: 6px 0;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.codex-sidebar-diff-line {
+  display: flex;
+  min-height: 1.45em;
+  padding: 0 12px 0 0;
+  white-space: pre;
+}
+
+.codex-sidebar-diff-line.is-added { background: color-mix(in srgb, var(--color-green) 18%, transparent); }
+.codex-sidebar-diff-line.is-removed { background: color-mix(in srgb, var(--color-red) 18%, transparent); }
+.codex-sidebar-diff-marker { width: 28px; padding-left: 10px; color: var(--text-muted); user-select: none; }
+.codex-sidebar-diff-line.is-added .codex-sidebar-diff-marker { color: var(--color-green); }
+.codex-sidebar-diff-line.is-removed .codex-sidebar-diff-marker { color: var(--color-red); }
+.codex-sidebar-diff-text { padding-left: 8px; }
