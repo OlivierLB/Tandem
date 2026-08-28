@@ -12,6 +12,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
