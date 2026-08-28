@@ -1801,7 +1801,7 @@ class CodexSidebarPlugin extends Plugin {
         throw new Error(this.t("invalidProposal"));
       }
       new Notice(this.t("proposalReady"));
-      return { kind: "edit", path: file.path, summary: data.summary, original, content: data.content };
+      return { kind: "edit", path: file.path, summary: data.summary, original, content: this.cleanMarkdownContent(data.content) };
     } catch (error) {
       this.handleProposalError(error);
       return null;
@@ -1934,7 +1934,7 @@ class CodexSidebarPlugin extends Plugin {
         type: raw.type,
         path,
         fromPath,
-        content: raw.type === "move" ? "" : String(raw.content || ""),
+        content: raw.type === "move" ? "" : this.cleanMarkdownContent(String(raw.content || "")),
         reason: String(raw.reason || ""),
       });
     }
@@ -1946,6 +1946,12 @@ class CodexSidebarPlugin extends Plugin {
     const path = normalizePath(value.trim().replace(/^\/+/, ""));
     if (!path || !path.toLowerCase().endsWith(".md") || path.startsWith(".") || path.includes("/.")) return "";
     return path;
+  }
+
+  cleanMarkdownContent(value) {
+    const content = String(value || "").trim();
+    const wrapped = content.match(/^```(?:markdown|md)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i);
+    return (wrapped ? wrapped[1] : content).trim();
   }
 
   pathIsInsideScope(path, scope, scopeRoot) {
