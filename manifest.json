@@ -3,7 +3,7 @@
   "name": "Tandem",
   "version": "1.3.0",
   "minAppVersion": "1.5.0",
-  "description": "A contextual AI assistant for discussing, improving, and organizing your Obsidian notes.",
+  "description": "A contextual AI companion for discussing, improving, and organizing your notes.",
   "author": "OlivierLB",
   "authorUrl": "https://github.com/OlivierLB",
   "isDesktopOnly": true
