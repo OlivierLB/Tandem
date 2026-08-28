@@ -601,6 +601,7 @@ class CodexSidebarView extends ItemView {
     this.mode = plugin.settings.defaultMode;
     this.agentScope = plugin.settings.defaultAgentScope;
     this.proposal = null;
+    this.renderRevision = 0;
   }
 
   getViewType() {
@@ -620,6 +621,7 @@ class CodexSidebarView extends ItemView {
   }
 
   async render() {
+    const renderRevision = ++this.renderRevision;
     const container = this.contentEl;
     container.empty();
     container.addClass("codex-sidebar-view");
@@ -649,9 +651,11 @@ class CodexSidebarView extends ItemView {
       const contextList = contextDetails.createEl("ul");
       contextList.createEl("li", { text: activeFile.path });
       const activeNote = await this.plugin.app.vault.cachedRead(activeFile);
+      if (renderRevision !== this.renderRevision) return;
       for (const path of await this.plugin.getLinkedNotePaths(activeFile, activeNote)) {
         contextList.createEl("li", { text: path });
       }
+      if (renderRevision !== this.renderRevision) return;
     } else {
       contextEl.setText(this.plugin.t("openNote"));
     }
