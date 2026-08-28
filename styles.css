@@ -463,6 +463,27 @@
   margin: 8px 0 4px;
 }
 
+.codex-sidebar-reference-list {
+  margin: -8px 0 18px;
+}
+
+.codex-sidebar-reference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+.codex-sidebar-reference-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .codex-sidebar-suggestion-preview pre {
   max-height: 220px;
   overflow: auto;

@@ -66,6 +66,8 @@ const TRANSLATIONS = {
     contextUsage: "Context usage (approx.)",
     referencePaths: "Reference notes and folders",
     referencePathsDesc: "One vault path per line. These notes or folders are always available as context for Tandem.",
+    addReference: "Add a file or folder",
+    removeReference: "Remove",
     quickActions: "Custom actions",
     quickActionsDesc: "Optional JSON actions. Each item needs label, prompt, and enabled (true/false). Leave empty for no buttons.",
     backgroundReview: "Background review",
@@ -229,6 +231,8 @@ const TRANSLATIONS = {
     contextUsage: "Utilisation du contexte (approx.)",
     referencePaths: "Notes et dossiers de référence",
     referencePathsDesc: "Un chemin du coffre par ligne. Ces notes ou dossiers sont toujours disponibles comme contexte pour Tandem.",
+    addReference: "Ajouter un fichier ou dossier",
+    removeReference: "Supprimer",
     quickActions: "Actions personnalisées",
     quickActionsDesc: "Actions JSON facultatives. Chaque élément contient label, prompt et enabled (true/false). Laisse vide pour n’afficher aucun bouton.",
     backgroundReview: "Revue en arrière-plan",
@@ -557,6 +561,27 @@ class FolderSuggestModal extends FuzzySuggestModal {
 
   onChooseItem(folder) {
     this.onChoose(folder.path);
+  }
+}
+
+class ReferenceSuggestModal extends FuzzySuggestModal {
+  constructor(app, plugin, onChoose) {
+    super(app);
+    this.plugin = plugin;
+    this.onChoose = onChoose;
+  }
+
+  getItems() {
+    return this.app.vault.getAllLoadedFiles()
+      .filter((file) => (file instanceof TFile && file.extension === "md") || file instanceof TFolder);
+  }
+
+  getItemText(file) {
+    return file.path || "/";
+  }
+
+  onChooseItem(file) {
+    this.onChoose(file.path);
   }
 }
 
@@ -1068,18 +1093,32 @@ class CodexSidebarSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl).setName(this.plugin.t("settingsContextHeading")).setHeading();
 
-    new Setting(containerEl)
+    const referencesSetting = new Setting(containerEl)
       .setName(this.plugin.t("referencePaths"))
-      .setDesc(this.plugin.t("referencePathsDesc"))
-      .addTextArea((text) => text
-        .setValue(this.plugin.settings.referencePaths.join("\n"))
-        .onChange(async (value) => {
-          this.plugin.settings.referencePaths = value.split(/\r?\n/)
-            .map((path) => path.trim())
-            .filter(Boolean)
-            .map((path) => normalizePath(path));
+      .setDesc(this.plugin.t("referencePathsDesc"));
+    const references = containerEl.createDiv({ cls: "codex-sidebar-reference-list" });
+    const renderReferences = () => {
+      references.empty();
+      for (const path of this.plugin.settings.referencePaths) {
+        const row = references.createDiv({ cls: "codex-sidebar-reference-row" });
+        row.createSpan({ text: path });
+        row.createEl("button", { text: this.plugin.t("removeReference") }).addEventListener("click", async () => {
+          this.plugin.settings.referencePaths = this.plugin.settings.referencePaths.filter((candidate) => candidate !== path);
           await this.plugin.saveSettings();
-        }));
+          renderReferences();
+        });
+      }
+    };
+    referencesSetting.addButton((button) => button
+      .setButtonText(this.plugin.t("addReference"))
+      .onClick(() => new ReferenceSuggestModal(this.app, this.plugin, async (path) => {
+        if (!this.plugin.settings.referencePaths.includes(path)) {
+          this.plugin.settings.referencePaths.push(normalizePath(path));
+          await this.plugin.saveSettings();
+          renderReferences();
+        }
+      }).open()));
+    renderReferences();
 
     this.renderQuickActions(containerEl);
 
