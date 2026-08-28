@@ -627,6 +627,7 @@ class CodexSidebarView extends ItemView {
     this.agentScope = plugin.settings.defaultAgentScope;
     this.proposal = null;
     this.renderRevision = 0;
+    this.contextPaths = [];
   }
 
   getViewType() {
@@ -675,6 +676,13 @@ class CodexSidebarView extends ItemView {
       contextDetails.createEl("summary", { text: this.plugin.t("contextDetails") });
       const contextList = contextDetails.createEl("ul");
       contextList.createEl("li", { text: activeFile.path });
+      for (const path of this.contextPaths) contextList.createEl("li", { text: path });
+      contextDetails.createEl("button", { text: this.plugin.t("addReference") }).addEventListener("click", () => {
+        new ReferenceSuggestModal(this.app, this.plugin, (path) => {
+          if (!this.contextPaths.includes(path)) this.contextPaths.push(normalizePath(path));
+          void this.render();
+        }).open();
+      });
       const activeNote = await this.plugin.app.vault.cachedRead(activeFile);
       if (renderRevision !== this.renderRevision) return;
       for (const path of await this.plugin.getLinkedNotePaths(activeFile, activeNote)) {
@@ -974,6 +982,7 @@ class CodexSidebarView extends ItemView {
     this.currentFilePath = path;
     this.messages = path ? this.plugin.getConversation(path) : [];
     this.proposal = null;
+    this.contextPaths = [];
   }
 }
 
@@ -1710,7 +1719,7 @@ class CodexSidebarPlugin extends Plugin {
       const note = await this.app.vault.cachedRead(file);
       const context = note.slice(0, this.settings.maxContextCharacters);
       const properties = this.getProperties(file);
-      const linkedNotes = await this.getLinkedNotes(file, note);
+      const linkedNotes = await this.getLinkedNotes(file, note, view.contextPaths);
       this.workingStage = "answer";
       await view.render();
       const conversation = view.messages
@@ -2081,8 +2090,8 @@ class CodexSidebarPlugin extends Plugin {
     return frontmatter ? JSON.stringify(frontmatter, null, 2) : "";
   }
 
-  async getLinkedNotes(file, note) {
-    const paths = await this.getLinkedNotePaths(file, note);
+  async getLinkedNotes(file, note, additionalPaths = []) {
+    const paths = await this.getLinkedNotePaths(file, note, additionalPaths);
     const sections = [];
     for (const path of paths) {
       const linkedFile = this.app.vault.getAbstractFileByPath(path);
@@ -2098,7 +2107,7 @@ class CodexSidebarPlugin extends Plugin {
     return sections.join("\n\n");
   }
 
-  async getLinkedNotePaths(file, note) {
+  async getLinkedNotePaths(file, note, additionalPaths = []) {
     const links = new Set();
     const pattern = /!?\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
     for (const source of [note, this.getProperties(file)]) {
@@ -2108,7 +2117,7 @@ class CodexSidebarPlugin extends Plugin {
     for (const [sourcePath, targets] of Object.entries(resolvedLinks)) {
       if (targets && Object.prototype.hasOwnProperty.call(targets, file.path)) links.add(sourcePath);
     }
-    for (const referencePath of this.settings.referencePaths) {
+      for (const referencePath of [...this.settings.referencePaths, ...additionalPaths]) {
       const reference = this.app.vault.getAbstractFileByPath(referencePath);
       if (reference instanceof TFolder) {
         for (const markdownFile of this.app.vault.getMarkdownFiles()) {
@@ -2122,7 +2131,7 @@ class CodexSidebarPlugin extends Plugin {
     for (const link of links) {
       const linkedFile = this.app.metadataCache.getFirstLinkpathDest(link, file.path);
       if (!(linkedFile instanceof TFile) || linkedFile.extension !== "md") continue;
-      const isReference = this.settings.referencePaths.some((referencePath) => linkedFile.path === referencePath || linkedFile.path.startsWith(`${referencePath.replace(/\/$/, "")}/`));
+      const isReference = [...this.settings.referencePaths, ...additionalPaths].some((referencePath) => linkedFile.path === referencePath || linkedFile.path.startsWith(`${referencePath.replace(/\/$/, "")}/`));
       if (!this.settings.includeLinkedNotes && !isReference) continue;
       resolved.push({ path: linkedFile.path, priority: isReference ? 2 : 0 });
     }
