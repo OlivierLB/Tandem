@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   maxAgentContextCharacters: 80000,
   responseLanguage: "auto",
   conversations: {},
+  editConversations: {},
 };
 const MAX_CONVERSATION_MESSAGES = 12;
 const AUTH_DOCS_URL = "https://learn.chatgpt.com/docs/auth";
@@ -622,12 +623,14 @@ class CodexSidebarView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.messages = [];
+    this.editMessages = [];
     this.currentFilePath = null;
     this.mode = plugin.settings.defaultMode;
     this.agentScope = plugin.settings.defaultAgentScope;
     this.proposal = null;
     this.renderRevision = 0;
     this.contextPaths = [];
+    this.composerDraft = "";
   }
 
   getViewType() {
@@ -701,15 +704,16 @@ class CodexSidebarView extends ItemView {
     }
 
     let quickActionsHost = null;
-    if (this.mode === "chat") {
+    if (this.mode === "chat" || this.mode === "edit") {
       const messages = container.createDiv({ cls: "codex-sidebar-messages" });
-      if (!this.messages.length && !this.plugin.running) {
+      const conversationMessages = this.mode === "edit" ? this.editMessages : this.messages;
+      if (this.mode === "chat" && !conversationMessages.length && !this.plugin.running) {
         const welcome = messages.createDiv({ cls: "codex-sidebar-welcome" });
         welcome.createEl("h3", { text: this.plugin.t("title") });
         welcome.createDiv({ cls: "codex-sidebar-welcome-copy", text: this.plugin.t("workspaceHint") });
         quickActionsHost = welcome.createDiv({ cls: "codex-sidebar-quick-actions codex-sidebar-quick-actions-home" });
       }
-      for (const message of this.messages) {
+      for (const message of conversationMessages) {
         const messageEl = messages.createDiv({
           cls: `codex-sidebar-message codex-sidebar-message-${message.role}`,
         });
@@ -719,6 +723,9 @@ class CodexSidebarView extends ItemView {
       }
       if (this.plugin.running) {
         this.renderWorkingMessage(messages);
+      }
+      if (this.mode === "edit") {
+        this.renderProposal(container);
       }
     } else {
       this.renderProposal(container);
@@ -733,9 +740,15 @@ class CodexSidebarView extends ItemView {
     const pendingPrompt = this.pendingPrompt || this.plugin.pendingPrompt;
     if (pendingPrompt) {
       input.value = pendingPrompt;
+      this.composerDraft = pendingPrompt;
       this.pendingPrompt = "";
       this.plugin.pendingPrompt = "";
+    } else if (this.composerDraft) {
+      input.value = this.composerDraft;
     }
+    input.addEventListener("input", () => {
+      this.composerDraft = input.value;
+    });
     const actions = composer.createDiv({ cls: "codex-sidebar-actions" });
     actions.createEl("button", { cls: "codex-sidebar-status-button", text: this.plugin.t("status") })
       .addEventListener("click", () => new CodexStatusModal(this.plugin.app, this.plugin).open());
@@ -770,14 +783,22 @@ class CodexSidebarView extends ItemView {
       }
 
       input.value = "";
+      this.composerDraft = "";
       if (this.mode === "chat") {
         this.messages.push({ role: "user", text: question });
         await this.plugin.saveConversation(this.currentFilePath, this.messages);
+      } else if (this.mode === "edit") {
+        this.editMessages.push({ role: "user", text: question });
+        await this.plugin.saveEditConversation(this.currentFilePath, this.editMessages);
       }
       this.proposal = null;
       await this.render();
       if (this.mode === "edit") {
         this.proposal = await this.plugin.proposeActiveNoteEdit(question, this);
+        if (this.proposal) {
+          this.editMessages.push({ role: "assistant", text: this.proposal.summary });
+          await this.plugin.saveEditConversation(this.currentFilePath, this.editMessages);
+        }
       } else if (this.mode === "agent") {
         this.proposal = await this.plugin.proposeVaultActions(question, this.agentScope, this);
       } else {
@@ -981,6 +1002,7 @@ class CodexSidebarView extends ItemView {
     }
     this.currentFilePath = path;
     this.messages = path ? this.plugin.getConversation(path) : [];
+    this.editMessages = path ? this.plugin.getEditConversation(path) : [];
     this.proposal = null;
     this.contextPaths = [];
   }
@@ -1413,7 +1435,7 @@ class CodexSidebarPlugin extends Plugin {
         category: ["links", "structure", "organization", "duplicates", "metadata", "updates", "other"].includes(data.category) ? data.category : "other",
         priority: ["high", "medium", "low"].includes(data.priority) ? data.priority : "medium",
         confidence: typeof data.confidence === "number" ? Math.max(0, Math.min(1, data.confidence)) : 0.7,
-        summary: data.summary,
+        summary: this.sanitizeAiText(data.summary),
         actions,
         baselines: context.baselines,
         createdAt: Date.now(),
@@ -1669,9 +1691,20 @@ class CodexSidebarPlugin extends Plugin {
     return this.settings.conversations?.[path] || [];
   }
 
+  getEditConversation(path) {
+    return this.settings.editConversations?.[path] || [];
+  }
+
   async saveConversation(path, messages) {
     if (!path) return;
     this.settings.conversations[path] = messages.slice(-MAX_CONVERSATION_MESSAGES);
+    await this.saveSettings();
+  }
+
+  async saveEditConversation(path, messages) {
+    if (!path) return;
+    this.settings.editConversations = this.settings.editConversations || {};
+    this.settings.editConversations[path] = messages.slice(-MAX_CONVERSATION_MESSAGES);
     await this.saveSettings();
   }
 
@@ -1746,7 +1779,7 @@ class CodexSidebarPlugin extends Plugin {
         "When asked to rewrite content, return the proposed Markdown in the response without editing files.",
       ].join("\n");
       const answer = await this.runCodex(prompt);
-      conversationMessages.push({ role: "assistant", text: answer || this.t("emptyAnswer") });
+      conversationMessages.push({ role: "assistant", text: this.sanitizeAiText(answer || this.t("emptyAnswer")) });
     } catch (error) {
       console.error("[Tandem]", error);
       const message = error instanceof Error ? error.message : String(error);
@@ -1781,6 +1814,10 @@ class CodexSidebarPlugin extends Plugin {
       const original = await this.app.vault.cachedRead(file);
       const linkedNotes = await this.getLinkedNotes(file, original);
       const responseLanguage = this.getResponseLocale() === "fr" ? "French" : "English";
+      const conversation = view.editMessages
+        .slice(-6)
+        .map((message) => `${message.role === "user" ? "User" : "Tandem"}: ${message.text}`)
+        .join("\n");
       const prompt = [
         "You are preparing a reviewable edit for one Markdown note.",
         "Return only data matching the supplied JSON schema.",
@@ -1793,6 +1830,7 @@ class CodexSidebarPlugin extends Plugin {
         original,
         "---",
         linkedNotes ? `Optional linked-note reference context:\n${linkedNotes}` : "",
+        conversation ? `Previous modification conversation:\n${conversation}` : "",
         `Requested change: ${request}`,
         "The content field must contain the complete proposed Markdown file, not a patch.",
       ].filter(Boolean).join("\n");
@@ -1801,7 +1839,7 @@ class CodexSidebarPlugin extends Plugin {
         throw new Error(this.t("invalidProposal"));
       }
       new Notice(this.t("proposalReady"));
-      return { kind: "edit", path: file.path, summary: data.summary, original, content: this.cleanMarkdownContent(data.content) };
+      return { kind: "edit", path: file.path, summary: this.sanitizeAiText(data.summary), original, content: this.cleanMarkdownContent(data.content) };
     } catch (error) {
       this.handleProposalError(error);
       return null;
@@ -1853,7 +1891,7 @@ class CodexSidebarPlugin extends Plugin {
       new Notice(this.t("proposalReady"));
       return {
         kind: "agent",
-        summary: data.summary,
+        summary: this.sanitizeAiText(data.summary),
         actions,
         baselines: context.baselines,
       };
@@ -1935,7 +1973,7 @@ class CodexSidebarPlugin extends Plugin {
         path,
         fromPath,
         content: raw.type === "move" ? "" : this.cleanMarkdownContent(String(raw.content || "")),
-        reason: String(raw.reason || ""),
+        reason: this.sanitizeAiText(raw.reason || ""),
       });
     }
     return actions;
@@ -1949,9 +1987,25 @@ class CodexSidebarPlugin extends Plugin {
   }
 
   cleanMarkdownContent(value) {
-    const content = String(value || "").trim();
+    const content = this.sanitizeAiText(value).trim();
     const wrapped = content.match(/^```(?:markdown|md)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i);
     return (wrapped ? wrapped[1] : content).trim();
+  }
+
+  stripOuterMarkdownDelimiters(value) {
+    const content = String(value || "").trim();
+    const lines = content.split(/\r?\n/);
+    if (lines.length < 3 || lines[0].trim() !== "---" || lines.at(-1).trim() !== "---") return content;
+    const inner = lines.slice(1, -1).join("\n").trim();
+    const hasFrontmatter = inner.split(/\r?\n/)[0].trim() === "---";
+    return hasFrontmatter ? content : inner;
+  }
+
+  sanitizeAiText(value) {
+    return String(value || "")
+      .replace(/[\u2014\u2013]/g, "-")
+      .replace(/\p{Extended_Pictographic}/gu, "")
+      .replace(/[\uFE0F\u200D\u20E3]/g, "");
   }
 
   pathIsInsideScope(path, scope, scopeRoot) {
@@ -1995,7 +2049,7 @@ class CodexSidebarPlugin extends Plugin {
     this.running = true;
     this.refreshOpenViews();
     const actions = proposal.kind === "edit"
-      ? [{ type: "update", path: proposal.path, content: proposal.content, fromPath: "", reason: proposal.summary }]
+      ? [{ type: "update", path: proposal.path, content: this.stripOuterMarkdownDelimiters(proposal.content), fromPath: "", reason: proposal.summary }]
       : proposal.actions;
     const baselines = proposal.kind === "edit" ? { [proposal.path]: proposal.original } : proposal.baselines;
     const undoBatch = [];
