@@ -2,6 +2,7 @@ const { EditorSuggest, FuzzySuggestModal, ItemView, Menu, Modal, Notice, Plugin,
 const { spawn } = require("child_process");
 const fs = require("fs");
 const pathApi = require("path");
+const os = require("os");
 const electron = require("electron");
 
 const VIEW_TYPE_CODEX_SIDEBAR = "codex-sidebar-view";
@@ -36,6 +37,51 @@ const AUTH_STATES = Object.freeze({
   UNAVAILABLE: "unavailable",
   ERROR: "error",
 });
+
+const RUNTIME_SCHEMAS = {
+  "classify.schema.json": {
+    type: "object",
+    properties: { type: { type: "string", enum: ["answer", "edit", "agent"] } },
+    required: ["type"],
+    additionalProperties: false,
+  },
+  "edit.schema.json": {
+    type: "object",
+    properties: {
+      summary: { type: "string", minLength: 1 },
+      content: { type: "string" },
+    },
+    required: ["summary", "content"],
+    additionalProperties: false,
+  },
+  "agent.schema.json": {
+    type: "object",
+    properties: {
+      summary: { type: "string", minLength: 1 },
+      category: { type: "string", enum: ["links", "structure", "organization", "duplicates", "metadata", "updates", "other"] },
+      priority: { type: "string", enum: ["high", "medium", "low"] },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      actions: {
+        type: "array",
+        maxItems: 30,
+        items: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["create", "update", "move"] },
+            path: { type: "string" },
+            fromPath: { type: "string" },
+            content: { type: "string" },
+            reason: { type: "string" },
+          },
+          required: ["type", "path", "fromPath", "content", "reason"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["summary", "actions"],
+    additionalProperties: false,
+  },
+};
 
 const TRANSLATIONS = {
   en: {
@@ -2259,10 +2305,20 @@ class CodexSidebarPlugin extends Plugin {
     return args;
   }
 
+  async prepareRuntimeSchema(schemaName) {
+    const schema = RUNTIME_SCHEMAS[schemaName];
+    if (!schema) throw new Error(`Unknown schema: ${schemaName}`);
+    const schemaDirectory = pathApi.join(os.tmpdir(), "tandem-schemas");
+    await fs.promises.mkdir(schemaDirectory, { recursive: true });
+    const schemaPath = pathApi.join(schemaDirectory, schemaName);
+    await fs.promises.writeFile(schemaPath, JSON.stringify(schema), "utf8");
+    return schemaPath;
+  }
+
   async runCodexStructured(prompt, schemaName, allowedPaths = []) {
     const vaultPath = this.app.vault.adapter.basePath;
     const pluginPath = `${vaultPath}/.obsidian/plugins/${this.manifest.id}`;
-    const schemaPath = `${pluginPath}/schemas/${schemaName}`;
+    const schemaPath = await this.prepareRuntimeSchema(schemaName);
     const args = this.addExternalScopeArgs([
       "exec",
       "--sandbox", "read-only",
