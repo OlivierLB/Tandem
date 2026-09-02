@@ -157,10 +157,10 @@ const TRANSLATIONS = {
     openSidebarCommand: "Open Tandem in the right sidebar",
     selectionCommand: "Analyze selection",
     selectionRequired: "Select text in a note first.",
-    modeChat: "Discuss",
+    modeChat: "Tandem",
     modeEdit: "Edit note",
     modeAgent: "Organize",
-    modeChatDesc: "Ask questions without changing files.",
+    modeChatDesc: "Discuss, modify notes, or organize the vault. Tandem shows a proposal before any change.",
     modeEditDesc: "Generate a complete revision of the active note, then review it before applying.",
     modeAgentDesc: "Prepare note operations, review every action, then apply them together.",
     editPlaceholder: "Describe the change to propose for the active note…",
@@ -322,10 +322,10 @@ const TRANSLATIONS = {
     openSidebarCommand: "Ouvrir Tandem dans le panneau droit",
     selectionCommand: "Analyser la sélection",
     selectionRequired: "Sélectionne d’abord du texte dans une note.",
-    modeChat: "Discussion",
+    modeChat: "Tandem",
     modeEdit: "Modifier la note",
     modeAgent: "Organiser",
-    modeChatDesc: "Pose des questions sans modifier les fichiers.",
+    modeChatDesc: "Discute, modifie tes notes ou organise le coffre. Tandem propose les changements avant application.",
     modeEditDesc: "Génère une révision complète de la note active, puis vérifie-la avant application.",
     modeAgentDesc: "Prépare des opérations sur les notes, vérifie chaque action, puis les applique ensemble.",
     editPlaceholder: "Décris la modification à proposer pour la note active…",
@@ -625,7 +625,7 @@ class CodexSidebarView extends ItemView {
     this.messages = [];
     this.editMessages = [];
     this.currentFilePath = null;
-    this.mode = plugin.settings.defaultMode;
+    this.mode = "chat";
     this.agentScope = plugin.settings.defaultAgentScope;
     this.proposal = null;
     this.renderRevision = 0;
@@ -698,16 +698,13 @@ class CodexSidebarView extends ItemView {
 
     this.renderModeNavigation(container);
     container.createDiv({ cls: "codex-sidebar-mode-description", text: this.plugin.t(`mode${capitalize(this.mode)}Desc`) });
-
-    if (this.mode === "agent") {
-      this.renderAgentScope(container);
-    }
+    this.renderAgentScope(container);
 
     let quickActionsHost = null;
     if (this.mode === "chat" || this.mode === "edit") {
       const messages = container.createDiv({ cls: "codex-sidebar-messages" });
-      const conversationMessages = this.mode === "edit" ? this.editMessages : this.messages;
-      if (this.mode === "chat" && !conversationMessages.length && !this.plugin.running) {
+      const conversationMessages = this.messages;
+      if (!conversationMessages.length && !this.plugin.running) {
         const welcome = messages.createDiv({ cls: "codex-sidebar-welcome" });
         welcome.createEl("h3", { text: this.plugin.t("title") });
         welcome.createDiv({ cls: "codex-sidebar-welcome-copy", text: this.plugin.t("workspaceHint") });
@@ -724,7 +721,7 @@ class CodexSidebarView extends ItemView {
       if (this.plugin.running) {
         this.renderWorkingMessage(messages);
       }
-      if (this.mode === "edit") {
+      if (this.proposal) {
         this.renderProposal(container);
       }
     } else {
@@ -732,7 +729,7 @@ class CodexSidebarView extends ItemView {
     }
 
     const composer = container.createDiv({ cls: "codex-sidebar-composer" });
-    const placeholderKey = this.mode === "edit" ? "editPlaceholder" : this.mode === "agent" ? "agentPlaceholder" : "placeholder";
+    const placeholderKey = "placeholder";
     const input = composer.createEl("textarea", {
       cls: "codex-sidebar-input",
       attr: { placeholder: this.plugin.t(placeholderKey) },
@@ -784,23 +781,23 @@ class CodexSidebarView extends ItemView {
 
       input.value = "";
       this.composerDraft = "";
-      if (this.mode === "chat") {
-        this.messages.push({ role: "user", text: question });
-        await this.plugin.saveConversation(this.currentFilePath, this.messages);
-      } else if (this.mode === "edit") {
-        this.editMessages.push({ role: "user", text: question });
-        await this.plugin.saveEditConversation(this.currentFilePath, this.editMessages);
-      }
+      this.messages.push({ role: "user", text: question });
+      await this.plugin.saveConversation(this.currentFilePath, this.messages);
       this.proposal = null;
       await this.render();
-      if (this.mode === "edit") {
+      const requestType = await this.plugin.classifyRequest(question);
+      if (requestType === "edit") {
         this.proposal = await this.plugin.proposeActiveNoteEdit(question, this);
         if (this.proposal) {
-          this.editMessages.push({ role: "assistant", text: this.proposal.summary });
-          await this.plugin.saveEditConversation(this.currentFilePath, this.editMessages);
+          this.messages.push({ role: "assistant", text: this.proposal.summary });
+          await this.plugin.saveConversation(this.currentFilePath, this.messages);
         }
-      } else if (this.mode === "agent") {
+      } else if (requestType === "agent") {
         this.proposal = await this.plugin.proposeVaultActions(question, this.agentScope, this);
+        if (this.proposal) {
+          this.messages.push({ role: "assistant", text: this.proposal.summary });
+          await this.plugin.saveConversation(this.currentFilePath, this.messages);
+        }
       } else {
         await this.plugin.askCodex(question, this);
       }
@@ -832,23 +829,7 @@ class CodexSidebarView extends ItemView {
   renderModeNavigation(container) {
     const navigation = container.createDiv({ cls: "codex-sidebar-modes" });
     navigation.createSpan({ cls: "codex-sidebar-mode-label", text: this.plugin.t("modeLabel") });
-    const select = navigation.createEl("select", {
-      cls: "codex-sidebar-mode-select",
-      attr: { "aria-label": this.plugin.t("title") },
-    });
-    for (const mode of ["chat", "edit", "agent"]) {
-      select.createEl("option", {
-        value: mode,
-        text: this.plugin.t(`mode${capitalize(mode)}`),
-      });
-    }
-    select.value = this.mode;
-    select.disabled = this.plugin.running;
-    select.addEventListener("change", () => {
-      this.mode = select.value;
-      this.proposal = null;
-      void this.render();
-    });
+    navigation.createSpan({ cls: "codex-sidebar-mode-value", text: this.plugin.t("modeChat") });
   }
 
   renderAgentScope(container) {
@@ -1729,6 +1710,24 @@ class CodexSidebarPlugin extends Plugin {
     }
   }
 
+  async classifyRequest(request) {
+    const prompt = [
+      "Classify the user's request for a note assistant.",
+      "Return only JSON matching this schema: {\"type\":\"answer|edit|agent\"}.",
+      "Use edit when the user asks to rewrite, correct, add, remove, or change note content.",
+      "Use agent when the user asks to create, move, rename, delete, or update multiple notes/files.",
+      "Use answer for questions, explanations, summaries, or discussion without a requested file change.",
+      `User request: ${request}`,
+    ].join("\n");
+    try {
+      const data = await this.runCodexStructured(prompt, "classify.schema.json");
+      return data?.type === "agent" || data?.type === "edit" ? data.type : "answer";
+    } catch (error) {
+      console.warn("[Tandem] request classification failed, using answer mode", error);
+      return "answer";
+    }
+  }
+
   async askCodex(question, view) {
     const file = this.app.workspace.getActiveFile();
     if (!file || file.extension !== "md") {
@@ -1814,7 +1813,7 @@ class CodexSidebarPlugin extends Plugin {
       const original = await this.app.vault.cachedRead(file);
       const linkedNotes = await this.getLinkedNotes(file, original);
       const responseLanguage = this.getResponseLocale() === "fr" ? "French" : "English";
-      const conversation = view.editMessages
+      const conversation = view.messages
         .slice(-6)
         .map((message) => `${message.role === "user" ? "User" : "Tandem"}: ${message.text}`)
         .join("\n");
