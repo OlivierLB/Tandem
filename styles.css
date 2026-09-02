@@ -92,6 +92,22 @@
   padding: 8px 10px;
 }
 
+.codex-sidebar-context-status {
+  color: var(--text-normal);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.codex-sidebar-context-install {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-muted);
+}
+
+.codex-sidebar-context-install span { flex: 1; }
+
 .codex-sidebar-context-details summary {
   color: var(--text-normal);
   cursor: pointer;
@@ -345,6 +361,9 @@
 
 .codex-sidebar-message-content {
   line-height: 1.45;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
   white-space: pre-wrap;
 }
 
@@ -378,7 +397,16 @@
   box-sizing: border-box;
   min-height: 104px;
   resize: vertical;
+  user-select: text;
   width: 100%;
+}
+
+.codex-sidebar-proposal,
+.codex-sidebar-diff-text,
+.codex-sidebar-action-path,
+.codex-sidebar-action-reason,
+.codex-sidebar-proposal-summary {
+  user-select: text;
 }
 
 .codex-sidebar-input:focus {
