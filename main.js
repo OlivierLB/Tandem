@@ -1075,9 +1075,6 @@ class CodexSidebarView extends ItemView {
     messageEl.createDiv({ cls: "codex-sidebar-message-author", text: "Tandem" });
     const content = messageEl.createDiv({ cls: "codex-sidebar-message-content" });
     content.createSpan({ text: this.plugin.t("working") });
-    if (this.plugin.workingStage) {
-      content.createSpan({ cls: "codex-sidebar-working-stage", text: ` ${this.plugin.t(`workingStage${capitalize(this.plugin.workingStage)}`)}` });
-    }
     content.createSpan({ cls: "codex-sidebar-thinking-indicator", attr: { "aria-hidden": "true" } });
   }
 
@@ -1642,6 +1639,7 @@ class CodexSidebarPlugin extends Plugin {
     await this.saveData(this.settings);
     this.updateSuggestionsStatus();
   }
+
 
   updateSuggestionsStatus() {
     if (!this.suggestionsStatusEl) return;
@@ -2270,6 +2268,7 @@ class CodexSidebarPlugin extends Plugin {
       .match(/[a-z0-9_]{3,}/g) || [];
     const ignored = new Set(["que", "qui", "dans", "avec", "pour", "tout", "les", "des", "une", "sur", "the", "and", "with", "from", "this", "that", "je", "veux", "liste", "features", "acces", "code", "via", "donc", "peux", "tout", "lire", "faire", "et", "est", "sont", "les", "fichiers", "current", "feature", "list"]);
     const terms = [...new Set(words.filter((word) => !ignored.has(word)))].slice(0, 8);
+    if (terms.includes("helpdesk")) return "helpdesk|ticket|issue";
     return terms.length ? terms.join("|") : "helpdesk|ticket|support";
   }
 
@@ -2281,14 +2280,14 @@ class CodexSidebarPlugin extends Plugin {
       const wsl = this.parseWslPath(entry.path);
       let result;
       if (wsl) {
-        const command = `rtk grep -R -I -n --exclude-dir=.git --exclude-dir=dist --exclude-dir=node_modules --exclude-dir=.idea ${this.shellQuote(pattern)} ${this.shellQuote(wsl.path)} || grep -R -I -n --exclude-dir=.git --exclude-dir=dist --exclude-dir=node_modules --exclude-dir=.idea -E ${this.shellQuote(pattern)} ${this.shellQuote(wsl.path)}`;
+        const command = `rtk grep -R -I -l --exclude-dir=.git --exclude-dir=dist --exclude-dir=node_modules --exclude-dir=.idea ${this.shellQuote(pattern)} ${this.shellQuote(wsl.path)} || grep -R -I -l --exclude-dir=.git --exclude-dir=dist --exclude-dir=node_modules --exclude-dir=.idea -E ${this.shellQuote(pattern)} ${this.shellQuote(wsl.path)}`;
         result = await this.runCli(["-d", wsl.distro, "--", "bash", "-lc", command], "", 120000, false, "wsl.exe");
       } else {
-        result = await this.runCli(["grep", "-R", "-I", "-n", "--exclude-dir=.git", "--exclude-dir=dist", "--exclude-dir=node_modules", pattern, entry.path], "", 120000, false, "rtk");
-        if (result.code !== 0 && !result.output) result = await this.runCli(["-R", "-I", "-n", "--glob", "!.git", "--glob", "!dist", "--glob", "!node_modules", pattern, entry.path], "", 120000, false, "rg");
+        result = await this.runCli(["grep", "-R", "-I", "-l", "--exclude-dir=.git", "--exclude-dir=dist", "--exclude-dir=node_modules", pattern, entry.path], "", 120000, false, "rtk");
+        if (result.code !== 0 && !result.output) result = await this.runCli(["-R", "-I", "-l", "--glob", "!.git", "--glob", "!dist", "--glob", "!node_modules", pattern, entry.path], "", 120000, false, "rg");
       }
       const output = [result.output, result.errors].filter(Boolean).join("\n").trim();
-      if (output) sections.push(`Files matching the request in ${entry.path}:\n${output}`);
+      if (output) sections.push(`Files matching the request in ${entry.path}. Tandem collected these paths locally:\n${output}`);
     }
     return sections.join("\n\n");
   }
